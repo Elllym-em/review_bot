@@ -9,6 +9,7 @@ import telegram
 from dotenv import load_dotenv
 
 from exceptions import HttpStatusError, NotApiResponse
+from exceptions import RequestApiError, SendMessageError
 
 load_dotenv()
 
@@ -55,7 +56,9 @@ def send_message(bot, message):
         )
         logger.debug('Сообщение успешно отправлено.')
     except telegram.error.TelegramError:
-        logger.error('Сбой при отправке сообщения в Telegram.')
+        message = 'Сбой при отправке сообщения в Telegram.'
+        logger.error(message)
+        raise SendMessageError(message)
 
 
 def get_api_answer(timestamp):
@@ -68,7 +71,7 @@ def get_api_answer(timestamp):
             params=payload,
         )
     except requests.RequestException as error:
-        raise Exception(
+        raise RequestApiError(
             f'Ошибка при запросе к эндпоинту c параметрами {payload}: {error}')
 
     if homework_statuses.status_code != HTTPStatus.OK:
@@ -87,6 +90,9 @@ def check_response(response):
     if not isinstance(response, dict):
         raise TypeError('Полученный ответ API не является словарем.')
     homework = response.get('homeworks')
+    if 'current_date' not in response:
+        raise KeyError(
+            'В полученном ответе API отсутствует ключ "current_date"')
     if not isinstance(homework, list):
         raise TypeError('В полученном ответе API отсутствует список работ.')
     return homework
@@ -99,7 +105,8 @@ def parse_status(homework):
         raise KeyError('Ключ homework_name не найден в ответе API.')
     homework_status = homework.get('status')
     if homework_status not in HOMEWORK_VERDICTS:
-        raise KeyError('В ответе получен неожиданный статус.')
+        raise KeyError(
+            f'В ответе получен неожиданный статус: "{homework_status}".')
     verdict = HOMEWORK_VERDICTS[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -120,15 +127,15 @@ def main():
         try:
             response = get_api_answer(timestamp)
             homework = check_response(response)
-            if len(homework) == 0:
+            if not homework:
                 message = 'Пока нет новых статусов.'
                 logger.debug('В ответе API отсутствуют новые статусы.')
             else:
                 message = parse_status(homework[0])
                 if message != last_message:
                     send_message(bot, message)
-            last_message = message
-            timestamp = response.get('current_date')
+                    last_message = message
+                    timestamp = response.get('current_date')
         except Exception as error:
             message_error = f'Сбой в работе программы: {error}'
             if message_error != last_message_error:
