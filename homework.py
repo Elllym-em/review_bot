@@ -138,10 +138,14 @@ def main():
                     timestamp = response.get('current_date')
         except Exception as error:
             message_error = f'Сбой в работе программы: {error}'
+            logger.error(message_error, exc_info=True)
             if message_error != last_message_error:
-                logger.error(message_error, exc_info=True)
-                send_message(bot, message_error)
-                last_message_error = message_error
+                try:
+                    send_message(bot, message_error)
+                except SendMessageError:
+                    pass
+                else:
+                    last_message_error = message_error
         finally:
             time.sleep(RETRY_PERIOD)
 
